@@ -1,5 +1,9 @@
 // Pemanggilan package express
 const express = require('express');
+const { is, get } = require('express/lib/request');
+
+// import db connection
+const db = require('./connection/db');
 
 // Menggunakan package express
 const app = express();
@@ -20,7 +24,7 @@ const blogs = [
     title: 'Judul',
     content: 'Judul',
     author: 'Judul',
-    posted_ad: 'Judul',
+    posted_at: 'Judul',
   },
 ];
 //bulan
@@ -37,16 +41,27 @@ app.get('/home', function (req, res) {
 
 //memanipulasi data atau menambahkan data ke list blog apabila ada blog baru yg diinput
 app.get('/blog', function (req, res) {
-  console.log(blogs);
+  let query = 'SELECT * FROM tb_blog';
 
-  let dataBlogs = blogs.map(function (data) {
-    return {
-      ...data,
-      isLogin: isLogin,
-    };
+  db.connect((err, client, done) => {
+    if (err) throw err;
+
+    client.query(query, (err, result) => {
+      done();
+
+      if (err) throw err;
+      let data = result.rows;
+
+      data = data.map((blog) => {
+        return {
+          ...blog,
+          post_at: getFullTime(blog.post_at),
+          isLogin: isLogin,
+        };
+      });
+      res.render('blog', { isLogin: isLogin, blogs: data });
+    });
   });
-
-  res.render('blog', { isLogin: isLogin, blogs: dataBlogs });
 });
 
 //add
