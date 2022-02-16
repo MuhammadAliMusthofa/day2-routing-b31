@@ -1,6 +1,5 @@
 // Pemanggilan package express
 const express = require('express');
-const { is, get } = require('express/lib/request');
 
 // import db connection
 const db = require('./connection/db');
@@ -14,21 +13,9 @@ app.set('view engine', 'hbs');
 app.use('/public', express.static(__dirname + '/public'));
 app.use(express.urlencoded({ extended: false }));
 
-// true => sudah login
-// false => belum login
 const isLogin = true;
 
-//Membuat Array Object yg akan menyimpan Data blog list
-const blogs = [
-  {
-    title: 'Judul',
-    content: 'Judul',
-    author: 'Judul',
-    posted_at: 'Judul',
-  },
-];
-//bulan
-let month = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'Desember'];
+let month = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 // Set endpoint
 app.get('/', function (req, res) {
@@ -39,9 +26,8 @@ app.get('/home', function (req, res) {
   res.render('index');
 });
 
-//memanipulasi data atau menambahkan data ke list blog apabila ada blog baru yg diinput
 app.get('/blog', function (req, res) {
-  let query = 'SELECT * FROM tb_blog';
+  let query = 'SELECT * FROM tb_blog ORDER BY id DESC';
 
   db.connect((err, client, done) => {
     if (err) throw err;
@@ -56,60 +42,134 @@ app.get('/blog', function (req, res) {
         return {
           ...blog,
           post_at: getFullTime(blog.post_at),
+          post_age: getDistanceTime(blog.post_at),
           isLogin: isLogin,
         };
       });
+
       res.render('blog', { isLogin: isLogin, blogs: data });
     });
   });
 });
 
-//add
 app.get('/add-blog', function (req, res) {
+  if (!isLogin) {
+    res.redirect('/home');
+  }
+
   res.render('form-blog');
 });
 
-//DELETE list blog
-app.get('/delete-blog/:index', function (req, res) {
-  let index = req.params.index;
-
-  console.log(`Index Data : ${index}`);
-
-  blogs.splice(index, 1);
-  res.redirect('/blog');
-});
-
-//mengambil data dari inputan blog agar bisa di tambahkan di list blog
 app.post('/blog', function (req, res) {
-  let title = req.body.title;
-  let content = req.body.content;
+  // let title = req.body.title
+  // let content = req.body.content
+
+  let { title, content } = req.body;
 
   let blog = {
     title: title,
     content,
-    author: 'Ali Musthofa',
-    posted_at: getFullTime(new Date()),
+    image: 'image.png',
   };
 
-  blogs.push(blog);
-  res.redirect('/blog');
+  db.connect((err, client, done) => {
+    if (err) throw err;
+
+    let query = `INSERT INTO tb_blog(title, content, image) VALUES
+                        ('${blog.title}', '${blog.content}', '${blog.image}')`;
+
+    client.query(query, (err, result) => {
+      done();
+      if (err) throw err;
+
+      res.redirect('/blog');
+    });
+  });
 });
 
 app.get('/blog/:id', function (req, res) {
-  let id = req.params.id;
-  console.log(`Id dari client : ${id}`);
+  // let id = req.params.id
+  let { id } = req.params;
 
-  res.render('blog-detail', { id: id });
+  db.connect((err, client, done) => {
+    if (err) throw err;
+
+    let query = `SELECT * FROM tb_blog WHERE id=${id}`;
+    client.query(query, (err, result) => {
+      done();
+      if (err) throw err;
+
+      result = result.rows[0];
+      res.render('blog-detail', { blog: result });
+    });
+  });
+});
+
+app.get('/delete-blog/:id', function (req, res) {
+  let { id } = req.params;
+
+  db.connect((err, client, done) => {
+    if (err) throw err;
+
+    let query = `DELETE FROM tb_blog WHERE id=${id}`;
+
+    client.query(query, (err, result) => {
+      done();
+      if (err) throw err;
+
+      res.redirect('/blog');
+    });
+  });
+});
+
+app.get('/update-blog/:id', function (req, res) {
+  let { id } = req.params;
+
+  //koneksi gengan database
+  db.connect((err, client, done) => {
+    //jika ada error maka berikan error
+    if (err) throw err;
+
+    //jalankan query database
+    let query = `SELECT * FROM tb_blog WHERE id=${id}`;
+
+    client.query(query, (err, result) => {
+      done();
+      if (err) throw err;
+
+      result = result.rows[0];
+
+      res.render('blog-update', { blog: result });
+    });
+  });
+});
+
+app.post('/update-blog/:id', function (req, res) {
+  let { id } = req.params;
+  let { title, content } = req.body;
+
+  let query = `UPDATE tb_blog SET title='${title}', content='${content}' WHERE id=${id}`;
+
+  db.connect((err, client, done) => {
+    if (err) throw err;
+
+    client.query(query, (err, result) => {
+      done();
+      if (err) throw err;
+
+      res.redirect('/blog');
+    });
+  });
 });
 
 app.get('/contact-me', function (req, res) {
   res.render('contact');
 });
 
-//konfigurasi port aplikasi
+// Konfigurasi port aplikasi
 const port = 3000;
 app.listen(port, function () {
-  console.log(`server running on port ${port}`);
+  console.log(`Server running on port ${port}`);
 });
 
 function getFullTime(time) {
@@ -120,5 +180,51 @@ function getFullTime(time) {
   let hours = time.getHours();
   let minutes = time.getMinutes();
 
-  return ` ${date} ${month[monthIndex]}  ${year} ${hours}:${minutes} WIB`;
+  if (minutes < 10) {
+    minutes = '0' + minutes;
+  }
+
+  return `${date} ${month[monthIndex]} ${year} ${hours}:${minutes} WIB`;
+}
+
+function getDistanceTime(time) {
+  //waktu saat ini dikurangi waktu post
+
+  const distance = new Date() - new Date(time);
+
+  //convert to day
+  const miliseconds = 1000;
+  const secondsInMinute = 60;
+  const minutesInHour = 60;
+  const secondsInHour = secondsInMinute * minutesInHour;
+  const hoursInDay = 23;
+  const daysInWeek = 7;
+  const weeksInMonth = 4;
+  const monthsInYears = 12;
+
+  //jarak waktu dalam sehari
+  let yearDistance = Math.floor(distance / (miliseconds * secondsInHour * hoursInDay * daysInWeek * weeksInMonth * monthsInYears));
+  let monthDistance = Math.floor(distance / (miliseconds * secondsInHour * hoursInDay * daysInWeek * weeksInMonth));
+  let weekDistance = Math.floor(distance / (miliseconds * secondsInHour * hoursInDay * daysInWeek));
+
+  let dayDistance = Math.floor(distance / (miliseconds * secondsInHour * hoursInDay));
+  let hourDistance = Math.floor(distance / (miliseconds * secondsInHour));
+  let minuteDistance = Math.floor(distance / (miliseconds * secondsInMinute));
+  let secondDistance = Math.floor(distance / miliseconds);
+
+  if (yearDistance >= 1) {
+    return `${yearDistance}  year ago`;
+  } else if (monthDistance >= 1) {
+    return `${monthDistance}  month ago`;
+  } else if (weekDistance >= 1) {
+    return ` ${weekDistance}  week ago`;
+  } else if (dayDistance >= 1) {
+    return `${dayDistance} day ago`;
+  } else if (hourDistance >= 1) {
+    return `${hourDistance} hours ago`;
+  } else if (minuteDistance >= 1) {
+    return `${minuteDistance} minutes ago`;
+  } else {
+    return `${secondDistance} second ago`;
+  }
 }
