@@ -1,6 +1,13 @@
 // Pemanggilan package express
 const express = require('express');
 
+// Import package bcrypt
+const bcrypt = require('bcrypt');
+
+// import package express-flash and express-session
+const flash = require('express-flash');
+const session = require('express-session');
+
 // import db connection
 const db = require('./connection/db');
 
@@ -13,7 +20,23 @@ app.set('view engine', 'hbs');
 app.use('/public', express.static(__dirname + '/public'));
 app.use(express.urlencoded({ extended: false }));
 
-const isLogin = true;
+// use express-flash
+app.use(flash());
+
+// setup session midleware
+app.use(
+  session({
+    cookie: {
+      maxAge: 1000 * 60 * 60 * 2,
+      secure: false,
+      httpOnly: true,
+    },
+    store: new session.MemoryStore(),
+    saveUninitialized: true,
+    resave: false,
+    secret: 'secretValue',
+  })
+);
 
 let month = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -23,7 +46,10 @@ app.get('/', function (req, res) {
 });
 
 app.get('/home', function (req, res) {
-  res.render('index');
+  res.render('index', {
+    isLogin: req.session.isLogin,
+    user: req.session.user,
+  });
 });
 
 app.get('/blog', function (req, res) {
@@ -43,17 +69,21 @@ app.get('/blog', function (req, res) {
           ...blog,
           post_at: getFullTime(blog.post_at),
           post_age: getDistanceTime(blog.post_at),
-          isLogin: isLogin,
+          isLogin: req.session.isLogin,
         };
       });
 
-      res.render('blog', { isLogin: isLogin, blogs: data });
+      res.render('blog', {
+        isLogin: req.session.isLogin,
+        user: req.session.user,
+        blogs: data,
+      });
     });
   });
 });
 
 app.get('/add-blog', function (req, res) {
-  if (!isLogin) {
+  if (!req.session.isLogin) {
     res.redirect('/home');
   }
 
@@ -125,12 +155,9 @@ app.get('/delete-blog/:id', function (req, res) {
 app.get('/update-blog/:id', function (req, res) {
   let { id } = req.params;
 
-  //koneksi gengan database
   db.connect((err, client, done) => {
-    //jika ada error maka berikan error
     if (err) throw err;
 
-    //jalankan query database
     let query = `SELECT * FROM tb_blog WHERE id=${id}`;
 
     client.query(query, (err, result) => {
@@ -166,8 +193,76 @@ app.get('/contact-me', function (req, res) {
   res.render('contact');
 });
 
+app.get('/register', function (req, res) {
+  res.render('register');
+});
+
+app.post('/register', function (req, res) {
+  let { name, email, password } = req.body;
+
+  let hashPassword = bcrypt.hashSync(password, 10);
+
+  db.connect((err, client, done) => {
+    if (err) throw err;
+
+    let query = `INSERT INTO tb_user(name, email, password) VALUES
+                        ('${name}','${email}','${hashPassword}')`;
+
+    client.query(query, (err, result) => {
+      done();
+      if (err) throw err;
+      req.flash('success', 'Account succesfully registered ');
+      res.redirect('/login');
+    });
+  });
+});
+
+app.get('/login', function (req, res) {
+  res.render('login');
+});
+
+app.post('/login', function (req, res) {
+  let { email, password } = req.body;
+
+  db.connect((err, client, done) => {
+    if (err) throw err;
+
+    let query = `SELECT * FROM tb_user WHERE email='${email}'`;
+
+    client.query(query, (err, result) => {
+      done();
+      if (err) throw err;
+
+      if (result.rows.length == 0) {
+        req.flash('danger', 'Account not found!');
+        return res.redirect('/login');
+      }
+
+      let isMatch = bcrypt.compareSync(password, result.rows[0].password);
+
+      if (isMatch) {
+        req.session.isLogin = true;
+        req.session.user = {
+          id: result.rows[0].id,
+          email: result.rows[0].email,
+          name: result.rows[0].name,
+        };
+        req.flash('success', 'Login Success');
+        res.redirect('/blog');
+      } else {
+        res.redirect('/login');
+      }
+    });
+  });
+});
+
+app.get('/logout', function (req, res) {
+  req.session.destroy();
+  res.redirect('/home');
+});
+
 // Konfigurasi port aplikasi
-const port = 3000;
+const port = 5000;
 app.listen(port, function () {
   console.log(`Server running on port ${port}`);
 });
@@ -188,43 +283,28 @@ function getFullTime(time) {
 }
 
 function getDistanceTime(time) {
-  //waktu saat ini dikurangi waktu post
-
+  // waktu saat ini - waktu postingan
   const distance = new Date() - new Date(time);
-
-  //convert to day
+  //Convert to day
   const miliseconds = 1000;
   const secondsInMinute = 60;
   const minutesInHour = 60;
   const secondsInHour = secondsInMinute * minutesInHour;
   const hoursInDay = 23;
-  const daysInWeek = 7;
-  const weeksInMonth = 4;
-  const monthsInYears = 12;
 
-  //jarak waktu dalam sehari
-  let yearDistance = Math.floor(distance / (miliseconds * secondsInHour * hoursInDay * daysInWeek * weeksInMonth * monthsInYears));
-  let monthDistance = Math.floor(distance / (miliseconds * secondsInHour * hoursInDay * daysInWeek * weeksInMonth));
-  let weekDistance = Math.floor(distance / (miliseconds * secondsInHour * hoursInDay * daysInWeek));
+  let dayDistance = distance / (miliseconds * secondsInHour * hoursInDay);
 
-  let dayDistance = Math.floor(distance / (miliseconds * secondsInHour * hoursInDay));
-  let hourDistance = Math.floor(distance / (miliseconds * secondsInHour));
-  let minuteDistance = Math.floor(distance / (miliseconds * secondsInMinute));
-  let secondDistance = Math.floor(distance / miliseconds);
-
-  if (yearDistance >= 1) {
-    return `${yearDistance}  year ago`;
-  } else if (monthDistance >= 1) {
-    return `${monthDistance}  month ago`;
-  } else if (weekDistance >= 1) {
-    return ` ${weekDistance}  week ago`;
-  } else if (dayDistance >= 1) {
-    return `${dayDistance} day ago`;
-  } else if (hourDistance >= 1) {
-    return `${hourDistance} hours ago`;
-  } else if (minuteDistance >= 1) {
-    return `${minuteDistance} minutes ago`;
+  if (dayDistance >= 1) {
+    return Math.floor(dayDistance) + ' day ago';
   } else {
-    return `${secondDistance} second ago`;
+    // convert to hour
+    let hourDistance = Math.floor(distance / (miliseconds * secondsInHour));
+    if (hourDistance > 0) {
+      return hourDistance + ' hour ago';
+    } else {
+      // convert to minute
+      const minuteDistance = Math.floor(distance / (miliseconds * secondsInMinute));
+      return minuteDistance + ' minute ago';
+    }
   }
 }
